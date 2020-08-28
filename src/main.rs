@@ -10,12 +10,15 @@ use serde_json::{Value};
 #[tokio::main]
 async fn main() -> WebDriverResult<()> {
 
-    let starting_id: u64 = 364614;
+    let default_id: u64 = 364614;
     let wait_time: u64 = 5000;
     let error_wait_time: u64 = 10000;
 
+    let chromedriver_port: u32 = 9515;
+    let chromedriver_host = format!("http://localhost:{}", chromedriver_port);
+
     let mut current_id = loop {
-        println!("Enter starting id (default {:?}):", starting_id);
+        println!("Enter the id to start from (default {:?}):", default_id);
         let mut current_id = String::new();
 
         io::stdin()
@@ -23,7 +26,7 @@ async fn main() -> WebDriverResult<()> {
         .expect("Failed to read line");
 
         if current_id.trim().is_empty() == true {
-            break starting_id;
+            break default_id;
         } else if current_id.trim().parse::<u64>().is_ok() == true{
             let current_id: u64 = current_id.trim().parse().expect("t");
             break current_id;
@@ -49,7 +52,7 @@ async fn main() -> WebDriverResult<()> {
                              .open("users.txt");
 
     let caps = DesiredCapabilities::chrome();
-    let driver = WebDriver::new("http://localhost:9515", &caps).await.expect("Please open chromedriver at port 4444");
+    let driver = WebDriver::new(&chromedriver_host, &caps).await.expect("I can't find chromedriver!");
 
     driver.get("https://www.brick-hill.com/login").await?;
 
