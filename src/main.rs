@@ -6,13 +6,18 @@ use std::fs;
 use std::{thread, time};
 use std::io::Write;
 use serde_json::{Value};
+use rand::Rng;
 
 #[tokio::main]
 async fn main() -> WebDriverResult<()> {
 
+    let mut rng = rand::thread_rng();
+
     let default_id: u64 = 364614;
-    let wait_time: u64 = 5000;
-    let error_wait_time: u64 = 10000;
+
+    let random_wait_time = (5000,10000); 
+    let mut wait_time: u64 = rng.gen_range(&random_wait_time.0, &random_wait_time.1); // current wait time
+    let error_wait_time: u64 = 10000; //time it waits on error
 
     let chromedriver_port: u32 = 9515;
     let chromedriver_host = format!("http://localhost:{}", chromedriver_port);
@@ -46,10 +51,9 @@ async fn main() -> WebDriverResult<()> {
     .read_line(&mut password)
     .expect("Failed to read line");
 
-    //username txt creation teen siin
     let _file = OpenOptions::new().write(true)
                              .create_new(true)
-                             .open("users.txt");
+                             .open("users.txt"); //creates users.txt if it cant find it
 
     let caps = DesiredCapabilities::chrome();
     let driver = WebDriver::new(&chromedriver_host, &caps).await.expect("I can't find chromedriver!");
@@ -68,9 +72,7 @@ async fn main() -> WebDriverResult<()> {
         }
         let api_url = format!("https://api.brick-hill.com/v1/user/profile?id={}",current_id);
         let url = format!("https://www.brick-hill.com/user/{}", current_id);
-
-        // info format [username:id]
-        let info_format = format!("[{}:{}]", &username, &current_id.to_string());
+        let info_format = format!("[{}:{}]", &username, &current_id.to_string()); // info format [username:id]
 
         let contents = fs::read_to_string("users.txt")
         .expect("Something went wrong reading the file");
@@ -97,11 +99,20 @@ async fn main() -> WebDriverResult<()> {
 
         driver.get(url).await?; 
 
-        let friend_button = driver.find_element(By::XPath("//a[@class='button small inline blue']")).await?;
-        friend_button.click().await?;
+        let friend_button = driver.find_element(By::XPath("//div[@class='content text-center bold medium-text relative ellipsis']/div/a[3]")).await?;
+        if friend_button.text().await? == "FRIEND" {
+            friend_button.click().await?;
+        } else if friend_button.text().await? == "CANCEL FRIEND" {
+            println!("Already sent friend request!");
+            wait_time = 0;
+        } else if friend_button.text().await? == "REMOVE FRIEND"{
+            println!("Already friends!");
+            wait_time = 0;
+        } else {
+            println!("Idk what could have happened, maybe the site has been changed, pls fix");
+        }
 
-        // here adds line to file
-        let mut file = OpenOptions::new()
+        let mut file = OpenOptions::new() // opens file
         .write(true)
         .append(true)
         .open("users.txt")
@@ -109,14 +120,16 @@ async fn main() -> WebDriverResult<()> {
 
         if let Err(e) = writeln!(file, "{}", &info_format) {
             eprintln!("Couldn't write to file: {}", e);
-        }
+        } // adds friended user to users.txt
 
         let message_format = format!("Username: {}  ID: {}", user_info["username"], &current_id);
         println!("{}", message_format);
 
-        //make it give 5-10s random wait time
+        //Usually waits 5-10 seconds
         println!("Waiting {} milliseconds", &wait_time);
         thread::sleep(time::Duration::from_millis(wait_time));
+
         current_id += 1;
+        wait_time = rng.gen_range(&random_wait_time.0, &random_wait_time.1); 
     }
 }
