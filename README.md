@@ -4,5 +4,7 @@
 - Writes down already friended accounts so it can friend easily later (Supports using different accounts on the script)
 
 ## How to setup?
-Download chromedriver and set it to port 4444
+1. [Download chromedriver](https://chromedriver.chromium.org/downloads),make sure you choose the right version, you can find your chrome version from chrome://version/
+
+2. Make sure chromedriver is running on port 4444
 `chromedriver --port=4444`
