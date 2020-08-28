@@ -8,6 +8,6 @@
 2. Make sure chromedriver is running on port 9515 (Default port usually)
 
 ## Anything else?
-Usernames with spaces in them seem bugged, suggest you not use them. 
-Usernames are case sensitive, so make sure you have same capitalization each time you login to your account!
-Program currently crashes when it doesnt find friend request button, so it crashes when you have already sent friend request or if you are already friends with somebody!
+- Usernames with spaces in them seem bugged, suggest you not use them. 
+- Usernames are case sensitive, so make sure you have same capitalization each time you login to your account!
+- Program currently crashes when it doesnt find friend request button, so it crashes when you have already sent friend request or if you are already friends with somebody!
