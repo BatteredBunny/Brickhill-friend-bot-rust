@@ -49,7 +49,7 @@ async fn main() -> WebDriverResult<()> {
                              .open("users.txt");
 
     let caps = DesiredCapabilities::chrome();
-    let driver = WebDriver::new("http://localhost:4444", &caps).await.expect("Please open chromedriver at port 4444");
+    let driver = WebDriver::new("http://localhost:9515", &caps).await.expect("Please open chromedriver at port 4444");
 
     driver.get("https://www.brick-hill.com/login").await?;
 
