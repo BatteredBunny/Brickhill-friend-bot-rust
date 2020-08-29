@@ -7,10 +7,11 @@ use std::{thread, time};
 use std::io::Write;
 use serde_json::{Value};
 use rand::Rng;
+use std::collections::HashMap;
 
 #[tokio::main]
 async fn main() -> WebDriverResult<()> {
-
+    let client = reqwest::Client::new();
     let mut rng = rand::thread_rng();
 
     let default_id: u64 = 364614;
@@ -21,6 +22,13 @@ async fn main() -> WebDriverResult<()> {
 
     let chromedriver_port: u32 = 9515;
     let chromedriver_host = format!("http://localhost:{}", chromedriver_port);
+
+    println!("Please enter discord webhook (leave empty if you dont want to use it):");
+    let mut discord_webhook_url = String::new();
+
+    io::stdin()
+    .read_line(&mut discord_webhook_url)
+    .expect("Failed to read line");
 
     let mut current_id = loop {
         println!("Enter the id to start from (default {:?}):", default_id);
@@ -124,6 +132,16 @@ async fn main() -> WebDriverResult<()> {
 
         let message_format = format!("Username: {}  ID: {}", user_info["username"], &current_id);
         println!("{}", message_format);
+
+        if discord_webhook_url.trim() != "" {
+            let mut map = HashMap::new();
+            map.insert("content", format!("{}", message_format));
+    
+            &client.post(&discord_webhook_url)
+                .json(&map)
+                .send()
+                .await?;
+        } //sends info to webhook
 
         //Usually waits 5-10 seconds
         println!("Waiting {} milliseconds", &wait_time);
