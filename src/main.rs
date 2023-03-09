@@ -1,163 +1,264 @@
-use thirtyfour::prelude::*;
-use tokio;
-use std::io;
-use std::fs::OpenOptions;
-use std::fs;
-use std::{thread, time};
-use std::io::Write;
-use serde_json::{Value};
-use rand::Rng;
 use std::collections::HashMap;
+use std::{fs, io};
+use std::ops::RangeInclusive;
+use std::{thread, time};
+use std::io::{Read, Write};
+use std::sync::mpsc;
+
+use clap::Parser;
+use rand::rngs::ThreadRng;
+use rand::Rng;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use spinners::{Spinner, Spinners};
+use thirtyfour::prelude::*;
+
+#[derive(Parser, Debug, Clone)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    /// User ID to start from
+    #[clap(long, default_value_t = 364614)]
+    start_id: u64,
+
+    /// Login username
+    #[clap(short, long)]
+    username: String,
+
+    /// Login password
+    #[clap(short, long)]
+    password: String,
+
+    /// Wait time after error
+    #[clap(long, default_value_t = 5000)]
+    error_wait_time: u64,
+
+    /// Chromedriver port
+    #[clap(long, default_value_t = 9515)]
+    chromedriver_port: u32,
+
+    /// Discord webhook to send updates to
+    #[clap(long)]
+    discord_webhook_url: Option<String>,
+
+    /// Minimum amount of time to wait between tries
+    #[clap(long, default_value_t = 1000)]
+    wait_min: u64,
+
+    /// Max amount of time to wait between tries
+    #[clap(long, default_value_t = 3000)]
+    wait_max: u64,
+
+    #[clap(short, long, default_value = "users.json")]
+    file: String,
+}
+
+struct RandomWait {
+    range: RangeInclusive<u64>,
+    rng: ThreadRng,
+}
+
+impl RandomWait {
+    fn new(start: u64, end: u64) -> Self {
+        RandomWait {
+            range: (start..=end),
+            rng: rand::thread_rng(),
+        }
+    }
+
+    fn gen(&mut self) -> u64 {
+        self.rng.gen_range(self.range.clone())
+    }
+}
+
+async fn wait(message: Option<String>, milliseconds: u64) {
+    let mut sp = Spinner::new(Spinners::Dots, match message {
+        None => format!("Waiting {milliseconds} milliseconds"),
+        Some(m) => format!("{m}, waiting {milliseconds} milliseconds"),
+    });
+
+    thread::sleep(time::Duration::from_millis(milliseconds));
+    sp.stop_with_newline()
+}
+
+#[derive(Serialize, Deserialize)]
+struct ProfileApiOk {
+    description: Option<String>,
+    username: String,
+    id: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ProfileApiBad {
+    error: ProfileErr,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProfileErr {
+    message: String,
+    pretty_message: String,
+}
+
+const LOGIN_URL: &str = "https://www.brick-hill.com/login";
+const PROFILE_API_URL: &str = "https://api.brick-hill.com/v1/user/profile?id=";
+const PROFILE_URL: &str = "https://www.brick-hill.com/user/";
+
+const LOGIN_BUTTON_XPATH: &str = "/html/body/div[1]/div/div/div[2]/form/button";
+const FRIEND_BUTTON_XPATH: &str =
+    "//div[@class='content text-center bold medium-text relative ellipsis']/div/a[3]";
+
+#[derive(Serialize, Deserialize)]
+struct Data {
+    users: HashMap<u64, bool>,
+}
+
+fn save(data: &Data, file: &str) {
+    fs::write(file, serde_json::to_string(data).unwrap()).unwrap();
+}
+
+async fn message_webhook(client: &Client, url: &str, content: String) {
+    let json = HashMap::from([("content", content)]);
+
+    client
+        .post(url)
+        .json(&json)
+        .send()
+        .await
+        .expect("Failed to send info to webhook");
+}
 
 #[tokio::main]
 async fn main() -> WebDriverResult<()> {
-    let client = reqwest::Client::new();
-    let mut rng = rand::thread_rng();
+    let args = Args::parse();
+    let file = args.file;
+    let client = Client::new();
 
-    let default_id: u64 = 364614;
+    let mut current_id = args.start_id;
+    if current_id == 0 {
+        current_id = 1
+    }
 
-    let random_wait_time = (5000,10000); 
-    let mut wait_time: u64 = rng.gen_range(&random_wait_time.0, &random_wait_time.1); // current wait time
-    let error_wait_time: u64 = 10000; //time it waits on error
-
-    let chromedriver_port: u32 = 9515;
-    let chromedriver_host = format!("http://localhost:{}", chromedriver_port);
-
-    println!("Please enter discord webhook (leave empty if you dont want to use it):");
-    let mut discord_webhook_url = String::new();
-
-    io::stdin()
-    .read_line(&mut discord_webhook_url)
-    .expect("Failed to read line");
-
-    let mut current_id = loop {
-        println!("Enter the id to start from (default {:?}):", default_id);
-        let mut current_id = String::new();
-
-        io::stdin()
-        .read_line(&mut current_id)
-        .expect("Failed to read line");
-
-        if current_id.trim().is_empty() == true {
-            break default_id;
-        } else if current_id.trim().parse::<u64>().is_ok() == true{
-            let current_id: u64 = current_id.trim().parse().expect("t");
-            break current_id;
-        }
+    let mut data: Data = match fs::read_to_string(file.as_str()) {
+        Ok(raw_json) => serde_json::from_str(&raw_json).unwrap(),
+        Err(_) => Data {
+            users: Default::default(),
+        },
     };
-    println!("You chose {}", current_id);
-
-    println!("Please enter your username:");
-    let mut username = String::new();
-    io::stdin()
-    .read_line(&mut username)
-    .expect("Failed to read line");
-
-    println!("Please enter your password:");
-    let mut password = String::new();
-    io::stdin()
-    .read_line(&mut password)
-    .expect("Failed to read line");
-
-    let _file = OpenOptions::new().write(true)
-                             .create_new(true)
-                             .open("users.txt"); //creates users.txt if it cant find it
 
     let caps = DesiredCapabilities::chrome();
-    let driver = WebDriver::new(&chromedriver_host, &caps).await.expect("I can't find chromedriver!");
+    let driver = WebDriver::new(
+        &format!("http://localhost:{}", args.chromedriver_port),
+        caps,
+    )
+    .await
+    .expect("I can't connect to chromedriver!");
 
-    driver.get("https://www.brick-hill.com/login").await?;
+    // Login to the website
+    driver.get(LOGIN_URL).await?;
+    driver
+        .find_element(By::Id("username"))
+        .await?
+        .send_keys(&args.username)
+        .await?;
+    driver
+        .find_element(By::Id("password"))
+        .await?
+        .send_keys(&args.password)
+        .await?;
 
-    let password_field = driver.find_element(By::Id("password")).await?;
-    let username_field = driver.find_element(By::Id("username")).await?;
+    print!("Press any key when captcha completed");
+    io::stdout().flush().unwrap();
+    io::stdin().read_exact(&mut [0]).unwrap();
 
-    password_field.send_keys(&password).await?;
-    username_field.send_keys(&username).await?;
+    println!("Thank you! Starting now");
+    driver
+        .find_element(By::XPath(LOGIN_BUTTON_XPATH))
+        .await?
+        .click()
+        .await?;
 
-    loop {
-        if current_id == 0 {
-			current_id += 1;
-        }
-        let api_url = format!("https://api.brick-hill.com/v1/user/profile?id={}",current_id);
-        let url = format!("https://www.brick-hill.com/user/{}", current_id);
-        let info_format = format!("[{}:{}]", &username, &current_id.to_string()); // info format [username:id]
+    let (tx, rx) = mpsc::channel();
+    ctrlc::set_handler(move ||{
+            tx.send(()).expect("Failed to send exit message");
+    }).expect("Error setting Ctrl-C handler");
 
-        let contents = fs::read_to_string("users.txt")
-        .expect("Something went wrong reading the file");
+    let mut random_wait = RandomWait::new(args.wait_min, args.wait_max);
+    let mut wait_time = random_wait.gen();
 
-        //has to read whole file, search in the string.
-        if contents.contains(&info_format) {
-            println!("Skipping user {}", &current_id);
+    while rx.try_recv().is_err() {
+        let api_url: String = format!("{PROFILE_API_URL}{current_id}");
+        let url = format!("{PROFILE_URL}{current_id}");
+
+        while let Some(true) = data.users.get(&current_id) {
+            println!("Skipping user {current_id}");
             current_id += 1;
+        }
+
+        let res = client
+            .get(&api_url)
+            .send()
+            .await
+            .expect("failed to query profile api");
+        if !res.status().is_success() {
+            let response: ProfileApiBad = serde_json::from_str(&res.text().await.unwrap()).unwrap();
+
+            if response.error.message != "Record not found" {
+                eprintln!("{response:?}");
+            } else {
+                wait(Some(response.error.message), args.error_wait_time).await;
+            }
+
             continue;
-        } 
-        let json_user_info = reqwest::get(&api_url)
-            .await?
-            .text()
+        }
+
+        let response: ProfileApiOk = serde_json::from_str(&res.text().await.unwrap()).unwrap();
+
+        driver.get(url).await?;
+
+        let friend_button = driver
+            .find_element(By::XPath(FRIEND_BUTTON_XPATH))
             .await?;
-        let mut user_info: Value = serde_json::from_str(&json_user_info)?;
-        if user_info["error"] == "Record not found" {
-            loop {
-                println!("Record not found, waiting {} milliseconds", &error_wait_time);
-                thread::sleep(time::Duration::from_millis(error_wait_time));
-                let json_user_info = reqwest::get(&api_url)
-                    .await?
-                    .text()
-                    .await?;
-                let user_info: Value = serde_json::from_str(&json_user_info)?;
-                
-                if user_info["error"] != "Record not found" {
-                    break;
-                }
+        match friend_button.text().await?.as_str() {
+            "FRIEND" => {
+                println!("Friending {current_id} ({})", response.username);
+                friend_button.click().await?;
+            }
+            "CANCEL FRIEND" => {
+                println!(
+                    "Already sent friend request to {current_id} ({})!",
+                    response.username
+                );
+                wait_time = 0;
+            }
+            "REMOVE FRIEND" => {
+                println!("Already friends with {current_id} ({})!", response.username);
+                wait_time = 0;
+            }
+            _ => {
+                println!("This case should never happen");
+                current_id += 1;
+                continue;
             }
         }
 
-        driver.get(url).await?; 
+        data.users.insert(current_id, true);
 
-        let friend_button = driver.find_element(By::XPath("//div[@class='content text-center bold medium-text relative ellipsis']/div/a[3]")).await?;
-        if friend_button.text().await? == "FRIEND" {
-            friend_button.click().await?;
-        } else if friend_button.text().await? == "CANCEL FRIEND" {
-            println!("Already sent friend request!");
-            wait_time = 0;
-        } else if friend_button.text().await? == "REMOVE FRIEND"{
-            println!("Already friends!");
-            wait_time = 0;
-        } else {
-            println!("Idk what could have happened, maybe the site has been changed, pls fix");
+        // Sends info to webhook
+        let status_update_format = format!("Username: {}  ID: {current_id}", response.username);
+        println!("{status_update_format}");
+        if let Some(url) = &args.discord_webhook_url {
+            message_webhook(&client, url, status_update_format).await
         }
 
-        let mut file = OpenOptions::new() // opens file
-        .write(true)
-        .append(true)
-        .open("users.txt")
-        .unwrap();
-
-        if let Err(e) = writeln!(file, "{}", &info_format) {
-            eprintln!("Couldn't write to file: {}", e);
-        } // adds friended user to users.txt
-	    if user_info["username"] == serde_json::json!(null){
-	        let json_user_info = reqwest::get(&api_url).await?.text().await?;
-            user_info = serde_json::from_str(&json_user_info)?;
-	    }
-        let message_format = format!("Username: {}  ID: {}", user_info["username"], &current_id);
-        println!("{}", message_format);
-
-        if discord_webhook_url.trim() != "" {
-            let mut map = HashMap::new();
-            map.insert("content", format!("{}", message_format));
-    
-            &client.post(&discord_webhook_url)
-                .json(&map)
-                .send()
-                .await?;
-        } //sends info to webhook
-
-        //Usually waits 5-10 seconds
-        println!("Waiting {} milliseconds", &wait_time);
-        thread::sleep(time::Duration::from_millis(wait_time));
+        wait(None, wait_time).await;
 
         current_id += 1;
-        wait_time = rng.gen_range(&random_wait_time.0, &random_wait_time.1); 
+        wait_time = random_wait.gen();
     }
+
+    println!("Exiting, have a good day");
+    driver.close().await.expect("Failed to close chrome");
+    save(&data, &file);
+
+    Ok(())
 }
