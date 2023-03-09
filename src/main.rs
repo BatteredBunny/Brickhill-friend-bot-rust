@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::{fs, io};
-use std::ops::RangeInclusive;
-use std::{thread, time};
 use std::io::{Read, Write};
+use std::ops::RangeInclusive;
 use std::sync::mpsc;
+use std::{fs, io};
+use std::{thread, time};
 
 use clap::Parser;
 use rand::rngs::ThreadRng;
@@ -71,10 +71,13 @@ impl RandomWait {
 }
 
 async fn wait(message: Option<String>, milliseconds: u64) {
-    let mut sp = Spinner::new(Spinners::Dots, match message {
-        None => format!("Waiting {milliseconds} milliseconds"),
-        Some(m) => format!("{m}, waiting {milliseconds} milliseconds"),
-    });
+    let mut sp = Spinner::new(
+        Spinners::Dots,
+        match message {
+            None => format!("Waiting {milliseconds} milliseconds"),
+            Some(m) => format!("{m}, waiting {milliseconds} milliseconds"),
+        },
+    );
 
     thread::sleep(time::Duration::from_millis(milliseconds));
     sp.stop_with_newline()
@@ -103,9 +106,10 @@ const LOGIN_URL: &str = "https://www.brick-hill.com/login";
 const PROFILE_API_URL: &str = "https://api.brick-hill.com/v1/user/profile?id=";
 const PROFILE_URL: &str = "https://www.brick-hill.com/user/";
 
-const LOGIN_BUTTON_XPATH: &str = "/html/body/div[1]/div/div/div[2]/form/button";
-const FRIEND_BUTTON_XPATH: &str =
-    "//div[@class='content text-center bold medium-text relative ellipsis']/div/a[3]";
+const LOGIN_FORM_CSS: &str = ".content form";
+
+const FRIEND_FORM_CLASS: &str = "friend-form";
+const FRIEND_FORM_TYPE_CSS: &str = ".friend-form input[name=\"type\"]";
 
 #[derive(Serialize, Deserialize)]
 struct Data {
@@ -154,33 +158,28 @@ async fn main() -> WebDriverResult<()> {
     .expect("I can't connect to chromedriver!");
 
     // Login to the website
-    driver.get(LOGIN_URL).await?;
-    driver
-        .find_element(By::Id("username"))
+    driver.goto(LOGIN_URL).await?;
+
+    let login_form = driver
+        .form(By::Css(LOGIN_FORM_CSS))
         .await?
-        .send_keys(&args.username)
-        .await?;
-    driver
-        .find_element(By::Id("password"))
+        .set_by_name("username", &args.username)
         .await?
-        .send_keys(&args.password)
+        .set_by_name("password", &args.password)
         .await?;
 
-    print!("Press any key when captcha completed");
+    print!("Press enter when captcha completed");
     io::stdout().flush().unwrap();
     io::stdin().read_exact(&mut [0]).unwrap();
 
     println!("Thank you! Starting now");
-    driver
-        .find_element(By::XPath(LOGIN_BUTTON_XPATH))
-        .await?
-        .click()
-        .await?;
+    login_form.submit().await?;
 
     let (tx, rx) = mpsc::channel();
-    ctrlc::set_handler(move ||{
-            tx.send(()).expect("Failed to send exit message");
-    }).expect("Error setting Ctrl-C handler");
+    ctrlc::set_handler(move || {
+        tx.send(()).expect("Failed to send exit message");
+    })
+    .expect("Error setting Ctrl-C handler");
 
     let mut random_wait = RandomWait::new(args.wait_min, args.wait_max);
     let mut wait_time = random_wait.gen();
@@ -213,29 +212,29 @@ async fn main() -> WebDriverResult<()> {
 
         let response: ProfileApiOk = serde_json::from_str(&res.text().await.unwrap()).unwrap();
 
-        driver.get(url).await?;
+        driver.goto(url).await?;
 
-        let friend_button = driver
-            .find_element(By::XPath(FRIEND_BUTTON_XPATH))
-            .await?;
-        match friend_button.text().await?.as_str() {
-            "FRIEND" => {
+        let friend_form = driver.form(By::ClassName(FRIEND_FORM_CLASS)).await?;
+        let friend_form_type = driver.find(By::Css(FRIEND_FORM_TYPE_CSS)).await?;
+
+        match friend_form_type.value().await?.unwrap().as_str() {
+            "send" => {
                 println!("Friending {current_id} ({})", response.username);
-                friend_button.click().await?;
+                friend_form.submit_direct().await?;
             }
-            "CANCEL FRIEND" => {
+            "remove" => {
+                println!("Already friends with {current_id} ({})!", response.username);
+                wait_time = 0;
+            }
+            "cancel" => {
                 println!(
                     "Already sent friend request to {current_id} ({})!",
                     response.username
                 );
                 wait_time = 0;
             }
-            "REMOVE FRIEND" => {
-                println!("Already friends with {current_id} ({})!", response.username);
-                wait_time = 0;
-            }
             _ => {
-                println!("This case should never happen");
+                println!("This should never happen");
                 current_id += 1;
                 continue;
             }
@@ -257,7 +256,7 @@ async fn main() -> WebDriverResult<()> {
     }
 
     println!("Exiting, have a good day");
-    driver.close().await.expect("Failed to close chrome");
+    driver.close_window().await.expect("Failed to close chrome");
     save(&data, &file);
 
     Ok(())
