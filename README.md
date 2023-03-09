@@ -5,6 +5,5 @@
 
 ## How to setup?
 1. [Download chromedriver](https://chromedriver.chromium.org/downloads),make sure you choose the right version, you can find your chrome version from chrome://version/
-
 2. Make sure chromedriver is running on port 4444
 `chromedriver --port=4444`
