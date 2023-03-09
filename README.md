@@ -14,6 +14,7 @@
 </ol>
 
 <h2>Usage</h2>
+
 ```
 USAGE:
     brickhill_friend_bot [OPTIONS] --username <USERNAME> --password <PASSWORD>
