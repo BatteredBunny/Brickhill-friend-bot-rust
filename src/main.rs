@@ -98,7 +98,24 @@ async fn main() -> WebDriverResult<()> {
         let user_info: Value = serde_json::from_str(&json_user_info)?;
         if user_info["error"] == "Record not found" {
             loop {
+                println!("Record not found, waiting {} milliseconds", &error_wait_time);
+
+                if discord_webhook_url.trim() != "" {
+                    let mut map = HashMap::new();
+                    map.insert("content", format!("Record not found, waiting {} milliseconds", &error_wait_time));
+            
+                    &client.post(&discord_webhook_url)
+                        .json(&map)
+                        .send()
+                        .await?;
+                }
                 thread::sleep(time::Duration::from_millis(error_wait_time));
+                let json_user_info = reqwest::get(&api_url)
+                    .await?
+                    .text()
+                    .await?;
+                let user_info: Value = serde_json::from_str(&json_user_info)?;
+                
                 if user_info["error"] != "Record not found" {
                     break;
                 }
