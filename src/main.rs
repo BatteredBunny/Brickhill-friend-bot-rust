@@ -95,7 +95,7 @@ async fn main() -> WebDriverResult<()> {
             .await?
             .text()
             .await?;
-        let user_info: Value = serde_json::from_str(&json_user_info)?;
+        let mut user_info: Value = serde_json::from_str(&json_user_info)?;
         if user_info["error"] == "Record not found" {
             loop {
                 println!("Record not found, waiting {} milliseconds", &error_wait_time);
@@ -146,7 +146,10 @@ async fn main() -> WebDriverResult<()> {
         if let Err(e) = writeln!(file, "{}", &info_format) {
             eprintln!("Couldn't write to file: {}", e);
         } // adds friended user to users.txt
-
+	if user_info["username"] == serde_json::json!(null){
+	    let json_user_info = reqwest::get(&api_url).await?.text().await?;
+            user_info = serde_json::from_str(&json_user_info)?;
+	}
         let message_format = format!("Username: {}  ID: {}", user_info["username"], &current_id);
         println!("{}", message_format);
 
