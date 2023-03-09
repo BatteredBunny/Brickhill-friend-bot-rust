@@ -12,3 +12,43 @@
   <li>Open and make sure chromedriver is running on port 9515 (Default port)</li>
   <li>Run this program</li>
 </ol>
+
+<h2>Usage</h2>
+```
+USAGE:
+    brickhill_friend_bot [OPTIONS] --username <USERNAME> --password <PASSWORD>
+
+OPTIONS:
+        --chromedriver-port <CHROMEDRIVER_PORT>
+            Chromedriver port [default: 9515]
+
+        --discord-webhook-url <DISCORD_WEBHOOK_URL>
+            Discord webhook to send updates to
+
+        --error-wait-time <ERROR_WAIT_TIME>
+            Wait time after error [default: 5000]
+
+    -f, --file <FILE>
+            [default: users.json]
+
+    -h, --help
+            Print help information
+
+    -p, --password <PASSWORD>
+            Login password
+
+        --start-id <START_ID>
+            User ID to start from [default: 364614]
+
+    -u, --username <USERNAME>
+            Login username
+
+    -V, --version
+            Print version information
+
+        --wait-max <WAIT_MAX>
+            Max amount of time to wait between tries [default: 3000]
+
+        --wait-min <WAIT_MIN>
+            Minimum amount of time to wait between tries [default: 1000]
+```

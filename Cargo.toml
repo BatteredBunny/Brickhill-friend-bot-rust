@@ -1,7 +1,7 @@
 [package]
 name = "brickhill_friend_bot"
-version = "0.3.5555"
-authors = ["ayes-web"]
+version = "0.5.0"
+authors = ["Ayes <ayes2022@protonmail.com>"]
 edition = "2021"
 
 [dependencies]
